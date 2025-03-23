@@ -14,5 +14,5 @@ void gc_free(void* ptr) {
 }
 
 void gc_collect() {
-    gc().Collect();
+    gc().AutoCollect();
 }
