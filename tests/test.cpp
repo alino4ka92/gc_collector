@@ -83,8 +83,8 @@ TEST_F(GenerationalGCTest, YoungGenerationCollection) {
     *static_cast<int *>(root) = 100;
 
     for (int i = 0; i < 10; i++) {
-        void *orphan = allocate(sizeof(int), false, nullptr);
-        *static_cast<int *>(orphan) = i;
+        void *object = allocate(sizeof(int), false, nullptr);
+        *static_cast<int *>(object) = i;
     }
 
     gc_collect();
