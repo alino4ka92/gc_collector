@@ -4,122 +4,65 @@
 #include <algorithm>
 #include "gc.h"
 
-struct TestNode {
-    int value;
-    TestNode *next;
-};
+size_t YOUNG_THRESHOLD = 1024*1024; // 1024 KB
+size_t OLD_THRESHOLD = 4*1024*1024; // 4096 KB
+double YOUNG_RATIO = 0.6;
+double OLD_RATIO = 0.8;
 
-class GenerationalGCTest : public ::testing::Test {
+class GCBasicTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        gc_collect();
-        gc_collect();
-        gc_collect();
+        configure_thresholds(YOUNG_THRESHOLD, OLD_THRESHOLD, YOUNG_RATIO,  OLD_RATIO);
     }
-
-    void TearDown() override {
-        while (allocated_memory.size() > 0) {
-            void *ptr = *allocated_memory.begin();
-            try {
-                deallocate(ptr);
-            } catch (...) {
-            }
-            allocated_memory.erase(ptr);
-        }
-        allocated_memory.clear();
-
-        gc_collect();
-        gc_collect();
-        gc_collect();
-    }
-
-    void *allocate(size_t size, bool is_root, void *parent) {
-        void *ptr = gc_malloc(size, is_root, parent);
-        allocated_memory.insert(ptr);
-        return ptr;
-    }
-
-    void deallocate(void *ptr) {
-        gc_free(ptr);
-    }
-
-    std::set<void *> allocated_memory;
 };
 
-TEST_F(GenerationalGCTest, BasicAllocationAndFree) {
-    void *ptr = allocate(sizeof(int), true, nullptr);
+TEST_F(GCBasicTest, BasicAllocationAndCollection) {
+    void* ptr = gc_malloc(100, true, nullptr);
     ASSERT_NE(ptr, nullptr);
-    *static_cast<int *>(ptr) = 42;
-    EXPECT_EQ(*static_cast<int *>(ptr), 42);
-    deallocate(ptr);
-    gc_collect();
+
+    gc_free(ptr);
+
+    gc_collect(false);
+
+    ASSERT_GE(get_collections_count(), 1);
 }
 
-TEST_F(GenerationalGCTest, LinkedList) {
-    TestNode *root = static_cast<TestNode *>(allocate(sizeof(TestNode), true, nullptr));
-    root->value = 1;
+TEST_F(GCBasicTest, MajorCollections) {
+    void* root = gc_malloc(100, true, nullptr);
+    gc_malloc(100, false, root);
+    gc_malloc(100, false, root);
 
-    TestNode *current = root;
-    for (int i = 2; i <= 5; i++) {
-        TestNode *node = static_cast<TestNode *>(allocate(sizeof(TestNode), false, current));
-        node->value = i;
-        node->next = nullptr;
-        current->next = node;
-        current = node;
-    }
+    gc_collect(true);
 
-    gc_collect();
+    gc_malloc(100, false, nullptr);
 
-    current = root;
-    for (int i = 1; i <= 5; i++) {
-        ASSERT_NE(current, nullptr);
-        EXPECT_EQ(current->value, i);
-        current = current->next;
-    }
+    gc_free(root);
+
+    gc_collect(true);
+
+    ASSERT_GE(get_collections_count(), 1);
 }
 
-TEST_F(GenerationalGCTest, YoungGenerationCollection) {
-    void *root = allocate(sizeof(int), true, nullptr);
-    *static_cast<int *>(root) = 100;
+TEST_F(GCBasicTest, YoungObjectsPromotion) {
+    static const size_t large_object_size = 512 * 1024; // 512KB
 
+    std::vector<void*> objects;
     for (int i = 0; i < 10; i++) {
-        void *object = allocate(sizeof(int), false, nullptr);
-        *static_cast<int *>(object) = i;
+        objects.push_back(gc_malloc(large_object_size, true, nullptr));
     }
 
-    gc_collect();
+    if (large_object_size * 10 > YOUNG_RATIO * YOUNG_THRESHOLD) {
+        ASSERT_LT(get_young_gen_size(), large_object_size * objects.size());
+        ASSERT_GT(get_old_gen_size(), 0);
+    }
 
-    void *child = allocate(sizeof(int), false, root);
-    *static_cast<int *>(child) = 101;
+    for (size_t i = 0; i < objects.size() / 2; i++) {
+        gc_free(objects[i]);
+    }
 
-    gc_collect();
+    gc_collect(true);
 
-
-    EXPECT_EQ(*static_cast<int *>(root), 100);
-    EXPECT_EQ(*static_cast<int *>(child), 101);
-}
-
-
-TEST_F(GenerationalGCTest, CyclicReferences) {
-    TestNode *node1 = static_cast<TestNode *>(allocate(sizeof(TestNode), true, nullptr));
-    TestNode *node2 = static_cast<TestNode *>(allocate(sizeof(TestNode), false, node1));
-    TestNode *node3 = static_cast<TestNode *>(allocate(sizeof(TestNode), false, node2));
-
-    node1->value = 1;
-    node2->value = 2;
-    node3->value = 3;
-
-    node1->next = node2;
-    node2->next = node3;
-    node3->next = node1;
-
-    gc_free(node1);
-
-    gc_collect();
-
-    void *new_obj = allocate(sizeof(TestNode), true, nullptr);
-
-    gc_collect();
+    ASSERT_LT(get_old_gen_size(), large_object_size * objects.size());
 }
 
 

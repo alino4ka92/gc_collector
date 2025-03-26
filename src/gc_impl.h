@@ -33,14 +33,20 @@ public:
 
     void MajorCollect();
 
-    void Collect();
-
     GenerationalGC &GetInstance();
 
     void AutoCollect();
 
+    void ForceGarbageCollection(bool major);
+
     void ConfigureThresholds(size_t young_threshold, size_t old_threshold,
                              double young_ratio, double old_ratio);
+
+    size_t GetCollectionsCount();
+
+    size_t GetYoungGenSize();
+
+    size_t GetOldGenSize();
 
     void StartGCThread();
 
@@ -59,13 +65,12 @@ private:
     std::mutex young_gen_mutex_;
     std::mutex old_gen_mutex_;
     std::mutex gc_mutex_;
-    std::mutex collections_count_mutex_;
 
     std::atomic<size_t> young_gen_size_{0};
     std::atomic<size_t> old_gen_size_{0};
     std::atomic<size_t> total_allocated_bytes_{0};
     std::atomic<bool> gc_in_progress_{false};
-    std::atomic<int> collections_count{0};
+    std::atomic<size_t> collections_count_{0};
 
     std::thread gc_thread_;
     std::atomic<bool> should_stop_{false};

@@ -32,12 +32,20 @@ void GenerationalGC::StopGCThread() {
     }
 }
 
+void GenerationalGC::ForceGarbageCollection(bool major) {
+    if (major) {
+        MajorCollect();
+    } else {
+        MinorCollect();
+    }
+}
+
 void GenerationalGC::GCThreadFunction() {
     while (!should_stop_.load(std::memory_order_acquire)) {
         {
             std::unique_lock<std::mutex> lock(gc_mutex_);
             gc_cv_.wait_for(lock, std::chrono::seconds(1), [this] {
-                return should_stop_.load(std::memory_order_acquire) ||
+                return should_stop_.load(std::memory_order_acquire) || collections_count_.load() % 3 == 0 ||
                        static_cast<double>(young_gen_size_.load()) >=
                        young_gen_ratio_ * static_cast<double>(young_gen_threshold_) ||
                        static_cast<double>(old_gen_size_.load()) >=
@@ -51,8 +59,9 @@ void GenerationalGC::GCThreadFunction() {
 
         bool young_gen_full = static_cast<double>(young_gen_size_.load()) >=
                               young_gen_ratio_ * static_cast<double>(young_gen_threshold_);
-        bool old_gen_full =
-                static_cast<double>(old_gen_size_.load()) >= old_gen_ratio_ * static_cast<double>(old_gen_threshold_);
+        bool old_gen_full = collections_count_.load() % 3 == 0 ||
+                            static_cast<double>(old_gen_size_.load()) >=
+                            old_gen_ratio_ * static_cast<double>(old_gen_threshold_);
 
         if (old_gen_full) {
             MajorCollect();
@@ -63,7 +72,7 @@ void GenerationalGC::GCThreadFunction() {
 }
 
 void *GenerationalGC::Malloc(size_t size, bool is_root, void *parent) {
-    char* ptr = new char[size];
+    char *ptr = new char[size];
     auto obj = std::make_shared<GCObject>(is_root, ptr);
     obj->size = size;
     {
@@ -112,9 +121,21 @@ void GenerationalGC::Free(void *ptr) {
             young_roots_.erase(ptr);
             old_roots_.erase(ptr);
         }
-    } catch (const std::runtime_error&) {
+    } catch (const std::runtime_error &) {
 
     }
+}
+
+size_t GenerationalGC::GetCollectionsCount() {
+    return collections_count_.load();
+}
+
+size_t GenerationalGC::GetYoungGenSize() {
+    return young_gen_size_.load();
+}
+
+size_t GenerationalGC::GetOldGenSize() {
+    return old_gen_size_.load();
 }
 
 void GenerationalGC::MinorCollect() {
@@ -122,7 +143,6 @@ void GenerationalGC::MinorCollect() {
     if (!gc_in_progress_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         return;
     }
-
     {
         std::lock_guard<std::mutex> young_lock(young_gen_mutex_);
 
@@ -134,9 +154,8 @@ void GenerationalGC::MinorCollect() {
         }
 
         Sweep(young_gen_);
-
         young_gen_size_ = 0;
-        for (const auto& [ptr, obj] : young_gen_) {
+        for (const auto &[ptr, obj]: young_gen_) {
             young_gen_size_ += obj->size;
         }
     }
@@ -179,25 +198,15 @@ void GenerationalGC::MajorCollect() {
         young_gen_size_ = 0;
         old_gen_size_ = 0;
 
-        for (const auto& [ptr, obj] : old_gen_) {
+        for (const auto &[ptr, obj]: old_gen_) {
             old_gen_size_ += obj->size;
         }
     }
 
-
-        IncCollectionsCount();
-
-
+    IncCollectionsCount();
     gc_in_progress_.store(false, std::memory_order_release);
 }
 
-void GenerationalGC::Collect() {
-    if (collections_count % 3 == 0) {
-        MajorCollect();
-    } else {
-        MinorCollect();
-    }
-}
 
 void GenerationalGC::AutoCollect() {
     bool young_gen_full = young_gen_size_ >= young_gen_ratio_ * young_gen_threshold_;
@@ -217,7 +226,7 @@ void GenerationalGC::ConfigureThresholds(size_t young_threshold, size_t old_thre
 }
 
 void GenerationalGC::IncCollectionsCount() {
-    collections_count++;
+    collections_count_.fetch_add(1, std::memory_order_release);
 }
 
 void GenerationalGC::Mark(std::shared_ptr<GCObject> root) {
