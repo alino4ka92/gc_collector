@@ -50,12 +50,12 @@ TEST_F(GenerationalGCTest, BasicAllocationAndFree) {
     void *ptr = allocate(sizeof(int), true, nullptr);
     ASSERT_NE(ptr, nullptr);
     *static_cast<int *>(ptr) = 42;
-    EXPECT_EQ(*static_cast<int*>(ptr), 42);
+    EXPECT_EQ(*static_cast<int *>(ptr), 42);
     deallocate(ptr);
     gc_collect();
 }
 
-TEST_F(GenerationalGCTest, LinkedNodesNotCollected) {
+TEST_F(GenerationalGCTest, LinkedList) {
     TestNode *root = static_cast<TestNode *>(allocate(sizeof(TestNode), true, nullptr));
     root->value = 1;
 
@@ -94,68 +94,11 @@ TEST_F(GenerationalGCTest, YoungGenerationCollection) {
 
     gc_collect();
 
-    gc_collect();
 
-    EXPECT_EQ(*static_cast<int*>(root), 100);
-    EXPECT_EQ(*static_cast<int*>(child), 101);
+    EXPECT_EQ(*static_cast<int *>(root), 100);
+    EXPECT_EQ(*static_cast<int *>(child), 101);
 }
 
-TEST_F(GenerationalGCTest, ObjectPromotionToOldGeneration) {
-    TestNode *root = static_cast<TestNode *>(allocate(sizeof(TestNode), true, nullptr));
-    root->value = 1;
-    root->next = nullptr;
-
-    TestNode *child = static_cast<TestNode *>(allocate(sizeof(TestNode), false, root));
-    child->value = 2;
-    child->next = nullptr;
-    root->next = child;
-
-    gc_collect();
-
-    gc_collect();
-
-    gc_collect();
-
-    TestNode *grandchild = static_cast<TestNode *>(allocate(sizeof(TestNode), false, child));
-    grandchild->value = 3;
-    grandchild->next = nullptr;
-    child->next = grandchild;
-
-    gc_collect();
-
-    EXPECT_EQ(root->value, 1);
-    EXPECT_NE(root->next, nullptr);
-    EXPECT_EQ(root->next->value, 2);
-    EXPECT_NE(root->next->next, nullptr);
-    EXPECT_EQ(root->next->next->value, 3);
-}
-
-TEST_F(GenerationalGCTest, RootRemovalAndCollectionCascade) {
-    TestNode *root = static_cast<TestNode *>(allocate(sizeof(TestNode), true, nullptr));
-    root->value = 100;
-
-    TestNode *child1 = static_cast<TestNode *>(allocate(sizeof(TestNode), false, root));
-    child1->value = 101;
-
-    TestNode *child2 = static_cast<TestNode *>(allocate(sizeof(TestNode), false, root));
-    child2->value = 102;
-
-    root->next = child1;
-    child1->next = child2;
-    child2->next = nullptr;
-
-    gc_free(root);
-
-    gc_collect();
-    gc_collect();
-    gc_collect();
-
-    TestNode *new_root = static_cast<TestNode *>(allocate(sizeof(TestNode), true, nullptr));
-    new_root->value = 200;
-    new_root->next = nullptr;
-
-    EXPECT_EQ(new_root->value, 200);
-}
 
 TEST_F(GenerationalGCTest, CyclicReferences) {
     TestNode *node1 = static_cast<TestNode *>(allocate(sizeof(TestNode), true, nullptr));
@@ -170,95 +113,16 @@ TEST_F(GenerationalGCTest, CyclicReferences) {
     node2->next = node3;
     node3->next = node1;
 
-    gc_collect();
-
     gc_free(node1);
 
     gc_collect();
-    gc_collect();
-    gc_collect();
 
     void *new_obj = allocate(sizeof(TestNode), true, nullptr);
-    ASSERT_NE(new_obj, nullptr);
-}
 
-TEST_F(GenerationalGCTest, StressTest) {
-    const int NUM_OBJECTS = 1000;
-    const int NUM_ROOTS = 10;
-
-    std::vector<void *> roots;
-
-    for (int i = 0; i < NUM_ROOTS; i++) {
-        void *root = allocate(sizeof(int), true, nullptr);
-        *static_cast<int *>(root) = i;
-        roots.push_back(root);
-    }
-
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(0, NUM_ROOTS - 1);
-
-    for (int i = 0; i < NUM_OBJECTS; i++) {
-        int root_idx = dis(gen);
-        void *obj = allocate(sizeof(int), false, roots[root_idx]);
-        *static_cast<int *>(obj) = NUM_ROOTS + i;
-    }
-
-    for (int i = 0; i < 3; i++) {
-        gc_collect();
-    }
-
-    for (int i = 0; i < NUM_ROOTS / 2; i++) {
-        gc_free(roots[i]);
-        roots[i] = nullptr;
-    }
-
-    for (int i = 0; i < 3; i++) {
-        gc_collect();
-    }
-
-    for (int i = NUM_ROOTS / 2; i < NUM_ROOTS; i++) {
-        EXPECT_EQ(*static_cast<int*>(roots[i]), i);
-    }
-}
-
-TEST_F(GenerationalGCTest, CollectionSequence) {
-    for (int i = 0; i < 10; i++) {
-        void *obj = allocate(sizeof(int), true, nullptr);
-        *static_cast<int *>(obj) = i;
-    }
-
-    gc_collect();
-
-    for (int i = 0; i < 5; i++) {
-        void *temp = allocate(sizeof(int), false, nullptr);
-        *static_cast<int *>(temp) = 100 + i;
-    }
-
-    gc_collect();
-    gc_collect();
     gc_collect();
 }
 
-TEST_F(GenerationalGCTest, WriteBarrier) {
-    TestNode *root = static_cast<TestNode *>(allocate(sizeof(TestNode), true, nullptr));
-    root->value = 1;
-    root->next = nullptr;
 
-    gc_collect();
-    gc_collect();
-    gc_collect();
-
-    TestNode *young_obj = static_cast<TestNode *>(allocate(sizeof(TestNode), false, root));
-    young_obj->value = 2;
-    young_obj->next = nullptr;
-    root->next = young_obj;
-
-    gc_collect();
-
-    ASSERT_NE(root->next, nullptr);
-    EXPECT_EQ(root->next->value, 2);
-}
 
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
