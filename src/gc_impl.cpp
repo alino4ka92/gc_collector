@@ -1,6 +1,6 @@
 #include "gc_impl.h"
 #include <stdexcept>
-
+#include <iostream>
 GCObject::GCObject(bool is_root_value, char *memory_value)
         : is_root(is_root_value), memory(memory_value) {
 }
@@ -8,6 +8,11 @@ GCObject::GCObject(bool is_root_value, char *memory_value)
 void GCObject::AddEdge(const std::shared_ptr<GCObject> &obj) {
     std::unique_lock<std::mutex> lock(edges_mutex);
     edges.insert(obj);
+}
+
+void GCObject::RemEdge(const std::shared_ptr<GCObject> &obj) {
+    std::unique_lock lock(edges_mutex);
+    edges.erase(obj);
 }
 
 GenerationalGC::GenerationalGC() {
@@ -19,14 +24,22 @@ GenerationalGC::~GenerationalGC() {
 }
 
 void GenerationalGC::StartGCThread() {
+    std::cout << 2 << std::endl;
+
+    if (!should_stop_.load()) {
+        return;
+    }
     should_stop_.store(false);
     gc_thread_ = std::thread(&GenerationalGC::GCThreadFunction, this);
 }
 
 void GenerationalGC::StopGCThread() {
-    should_stop_.store(true);
-    gc_cv_.notify_all();
 
+    if (should_stop_.load()){
+        return;
+    }
+    should_stop_.store(true);
+    gc_cv_.notify_one();
     if (gc_thread_.joinable()) {
         gc_thread_.join();
     }
@@ -40,12 +53,14 @@ void GenerationalGC::ForceGarbageCollection(bool major) {
     }
 }
 
+
 void GenerationalGC::GCThreadFunction() {
-    while (!should_stop_.load(std::memory_order_acquire)) {
+
+    while (!should_stop_.load()) {
         {
             std::unique_lock<std::mutex> lock(gc_mutex_);
-            gc_cv_.wait_for(lock, std::chrono::seconds(1), [this] {
-                return should_stop_.load(std::memory_order_acquire) || collections_count_.load() % 3 == 0 ||
+            gc_cv_.wait_for(lock, std::chrono::milliseconds(100), [this] {
+                return should_stop_.load() || collections_count_.load() % 3 == 0 ||
                        static_cast<double>(young_gen_size_.load()) >=
                        young_gen_ratio_ * static_cast<double>(young_gen_threshold_) ||
                        static_cast<double>(old_gen_size_.load()) >=
@@ -53,7 +68,7 @@ void GenerationalGC::GCThreadFunction() {
             });
         }
 
-        if (should_stop_.load(std::memory_order_acquire)) {
+        if (should_stop_.load()) {
             break;
         }
 
@@ -77,11 +92,9 @@ void *GenerationalGC::Malloc(size_t size, bool is_root, void *parent) {
     obj->size = size;
     {
         std::lock_guard<std::mutex> young_lock(young_gen_mutex_);
-
         if (is_root) {
             young_roots_.insert({ptr, obj});
         }
-
         if (parent) {
             std::shared_ptr<GCObject> parent_obj = nullptr;
 
@@ -96,18 +109,36 @@ void *GenerationalGC::Malloc(size_t size, bool is_root, void *parent) {
             }
             if (parent_obj) {
                 parent_obj->AddEdge(obj);
+                obj->parent = parent_obj;
             }
         }
-
         young_gen_.insert({ptr, obj});
     }
 
     young_gen_size_ += size;
     total_allocated_bytes_ += size;
 
-    AutoCollect();
-
     return ptr;
+}
+
+void GenerationalGC::ChangeParent(void *ptr, void *new_parent) {
+
+    {
+        std::lock_guard<std::mutex> young_lock(young_gen_mutex_);
+        std::lock_guard<std::mutex> old_lock(old_gen_mutex_);
+
+        std::shared_ptr<GCObject> obj = FindObject(ptr);
+
+        std::shared_ptr<GCObject> old_parent_obj = obj->parent;
+        if (old_parent_obj) {
+            old_parent_obj->RemEdge(obj);
+        }
+
+        std::shared_ptr<GCObject> new_parent_obj = FindObject(new_parent);
+        new_parent_obj->AddEdge(obj);
+
+        obj->parent = new_parent_obj;
+    }
 }
 
 void GenerationalGC::Free(void *ptr) {
@@ -162,6 +193,7 @@ void GenerationalGC::MinorCollect() {
 
     IncCollectionsCount();
     gc_in_progress_.store(false, std::memory_order_release);
+    gc_cv_.notify_all();
 }
 
 void GenerationalGC::MajorCollect() {
@@ -205,17 +237,11 @@ void GenerationalGC::MajorCollect() {
 
     IncCollectionsCount();
     gc_in_progress_.store(false, std::memory_order_release);
+    gc_cv_.notify_all();
 }
 
 
-void GenerationalGC::AutoCollect() {
-    bool young_gen_full = young_gen_size_ >= young_gen_ratio_ * young_gen_threshold_;
-    bool old_gen_full = old_gen_size_ >= old_gen_ratio_ * old_gen_threshold_;
 
-    if (young_gen_full || old_gen_full) {
-        gc_cv_.notify_one();
-    }
-}
 
 void GenerationalGC::ConfigureThresholds(size_t young_threshold, size_t old_threshold,
                                          double young_ratio, double old_ratio) {
@@ -226,7 +252,7 @@ void GenerationalGC::ConfigureThresholds(size_t young_threshold, size_t old_thre
 }
 
 void GenerationalGC::IncCollectionsCount() {
-    collections_count_.fetch_add(1, std::memory_order_release);
+    collections_count_.fetch_add(1);
 }
 
 void GenerationalGC::Mark(std::shared_ptr<GCObject> root) {

@@ -3,7 +3,8 @@ project(GcCollectorProject)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
+set(CMAKE_CXX_FLAGS "-fsanitize=address")
+set(ENV{MallocNanoZone} 0)
 set(SOURCES
         src/gc.cpp
         src/gc_impl.cpp
@@ -14,6 +15,7 @@ add_library(GcCollector STATIC ${SOURCES})
 target_include_directories(GcCollector PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 find_package(GTest REQUIRED)
+find_package(benchmark REQUIRED)
 
 enable_testing()
 

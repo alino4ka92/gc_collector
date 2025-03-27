@@ -13,12 +13,15 @@ struct GCObject {
     bool is_root = false;
     std::mutex edges_mutex;
     std::unordered_set<std::shared_ptr<GCObject>> edges;
+    std::shared_ptr<GCObject> parent = nullptr;
     std::unique_ptr<char> memory = nullptr;
     int size = 0;
 
     GCObject(bool is_root_value, char *memory_value);
 
     void AddEdge(const std::shared_ptr<GCObject> &obj);
+
+    void RemEdge(const std::shared_ptr<GCObject> &obj);
 };
 
 class GenerationalGC {
@@ -27,15 +30,15 @@ public:
 
     void *Malloc(size_t size, bool is_root, void *parent);
 
+    void ChangeParent(void* ptr, void* new_parent);
+
     void Free(void *ptr);
 
     void MinorCollect();
 
     void MajorCollect();
 
-    GenerationalGC &GetInstance();
-
-    void AutoCollect();
+    static GenerationalGC &GetInstance();
 
     void ForceGarbageCollection(bool major);
 
@@ -73,13 +76,13 @@ private:
     std::atomic<size_t> collections_count_{0};
 
     std::thread gc_thread_;
-    std::atomic<bool> should_stop_{false};
+    std::atomic<bool> should_stop_{true};
     std::condition_variable gc_cv_;
 
-    size_t young_gen_threshold_ = 4 * 1024 * 1024;
-    size_t old_gen_threshold_ = 16 * 1024 * 1024;
-    double young_gen_ratio_ = 0.6;
-    double old_gen_ratio_ = 0.80;
+    std::atomic<size_t> young_gen_threshold_ = 4 * 1024 * 1024;
+    std::atomic<size_t> old_gen_threshold_ = 16 * 1024 * 1024;
+    std::atomic<double> young_gen_ratio_ = 0.6;
+    std::atomic<double> old_gen_ratio_ = 0.80;
 
     void GCThreadFunction();
 
