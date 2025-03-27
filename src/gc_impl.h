@@ -7,17 +7,17 @@
 #include <unordered_set>
 #include <atomic>
 #include <thread>
-
+#include <condition_variable>
 struct GCObject {
     std::atomic<bool> mark{false};
     bool is_root = false;
     std::mutex edges_mutex;
     std::unordered_set<std::shared_ptr<GCObject>> edges;
     std::shared_ptr<GCObject> parent = nullptr;
-    std::unique_ptr<char> memory = nullptr;
+    std::unique_ptr<char[]> memory = nullptr;
     int size = 0;
 
-    GCObject(bool is_root_value, char *memory_value);
+    GCObject(bool is_root_value, size_t size);
 
     void AddEdge(const std::shared_ptr<GCObject> &obj);
 
@@ -76,7 +76,7 @@ private:
     std::atomic<size_t> collections_count_{0};
 
     std::thread gc_thread_;
-    std::atomic<bool> should_stop_{true};
+    std::atomic<bool> should_stop_{false};
     std::condition_variable gc_cv_;
 
     std::atomic<size_t> young_gen_threshold_ = 4 * 1024 * 1024;

@@ -1,8 +1,11 @@
 #include "gc_impl.h"
 #include <stdexcept>
 #include <iostream>
-GCObject::GCObject(bool is_root_value, char *memory_value)
-        : is_root(is_root_value), memory(memory_value) {
+#include <mutex>
+#include <vector>
+
+GCObject::GCObject(bool is_root_value, size_t size)
+    : is_root(is_root_value), memory(std::make_unique<char[]>(size)) {
 }
 
 void GCObject::AddEdge(const std::shared_ptr<GCObject> &obj) {
@@ -24,20 +27,11 @@ GenerationalGC::~GenerationalGC() {
 }
 
 void GenerationalGC::StartGCThread() {
-    std::cout << 2 << std::endl;
-
-    if (!should_stop_.load()) {
-        return;
-    }
     should_stop_.store(false);
     gc_thread_ = std::thread(&GenerationalGC::GCThreadFunction, this);
 }
 
 void GenerationalGC::StopGCThread() {
-
-    if (should_stop_.load()){
-        return;
-    }
     should_stop_.store(true);
     gc_cv_.notify_one();
     if (gc_thread_.joinable()) {
@@ -55,19 +49,17 @@ void GenerationalGC::ForceGarbageCollection(bool major) {
 
 
 void GenerationalGC::GCThreadFunction() {
-
     while (!should_stop_.load()) {
         {
             std::unique_lock<std::mutex> lock(gc_mutex_);
-            gc_cv_.wait_for(lock, std::chrono::milliseconds(100), [this] {
+            gc_cv_.wait_for(lock, std::chrono::milliseconds(1000), [this] {
                 return should_stop_.load() || collections_count_.load() % 3 == 0 ||
                        static_cast<double>(young_gen_size_.load()) >=
                        young_gen_ratio_ * static_cast<double>(young_gen_threshold_) ||
                        static_cast<double>(old_gen_size_.load()) >=
-                       old_gen_ratio_ * static_cast<double>( old_gen_threshold_);
+                       old_gen_ratio_ * static_cast<double>(old_gen_threshold_);
             });
         }
-
         if (should_stop_.load()) {
             break;
         }
@@ -87,11 +79,11 @@ void GenerationalGC::GCThreadFunction() {
 }
 
 void *GenerationalGC::Malloc(size_t size, bool is_root, void *parent) {
-    char *ptr = new char[size];
-    auto obj = std::make_shared<GCObject>(is_root, ptr);
-    obj->size = size;
-    {
+    auto obj = std::make_shared<GCObject>(is_root, size);
+    void *ptr = obj->memory.get();
+    obj->size = size; {
         std::lock_guard<std::mutex> young_lock(young_gen_mutex_);
+        std::lock_guard<std::mutex> old_lock(old_gen_mutex_);
         if (is_root) {
             young_roots_.insert({ptr, obj});
         }
@@ -101,7 +93,6 @@ void *GenerationalGC::Malloc(size_t size, bool is_root, void *parent) {
             if (young_gen_.contains(parent)) {
                 parent_obj = young_gen_[parent];
             } else {
-                std::lock_guard<std::mutex> old_lock(old_gen_mutex_);
                 if (old_gen_.contains(parent)) {
                     parent_obj = old_gen_[parent];
                     young_from_old_.insert({ptr, obj});
@@ -122,7 +113,6 @@ void *GenerationalGC::Malloc(size_t size, bool is_root, void *parent) {
 }
 
 void GenerationalGC::ChangeParent(void *ptr, void *new_parent) {
-
     {
         std::lock_guard<std::mutex> young_lock(young_gen_mutex_);
         std::lock_guard<std::mutex> old_lock(old_gen_mutex_);
@@ -153,7 +143,6 @@ void GenerationalGC::Free(void *ptr) {
             old_roots_.erase(ptr);
         }
     } catch (const std::runtime_error &) {
-
     }
 }
 
@@ -171,11 +160,11 @@ size_t GenerationalGC::GetOldGenSize() {
 
 void GenerationalGC::MinorCollect() {
     bool expected = false;
-    if (!gc_in_progress_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+    if (!gc_in_progress_.compare_exchange_strong(expected, true)) {
         return;
-    }
-    {
+    } {
         std::lock_guard<std::mutex> young_lock(young_gen_mutex_);
+        std::lock_guard<std::mutex> old_lock(old_gen_mutex_);
 
         for (const auto &[ptr, obj]: young_roots_) {
             Mark(obj);
@@ -192,17 +181,14 @@ void GenerationalGC::MinorCollect() {
     }
 
     IncCollectionsCount();
-    gc_in_progress_.store(false, std::memory_order_release);
-    gc_cv_.notify_all();
+    gc_in_progress_.store(false);
 }
 
 void GenerationalGC::MajorCollect() {
     bool expected = false;
-    if (!gc_in_progress_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+    if (!gc_in_progress_.compare_exchange_strong(expected, true)) {
         return;
-    }
-
-    {
+    } {
         std::lock_guard<std::mutex> young_lock(young_gen_mutex_);
         std::lock_guard<std::mutex> old_lock(old_gen_mutex_);
 
@@ -236,11 +222,8 @@ void GenerationalGC::MajorCollect() {
     }
 
     IncCollectionsCount();
-    gc_in_progress_.store(false, std::memory_order_release);
-    gc_cv_.notify_all();
+    gc_in_progress_.store(false);
 }
-
-
 
 
 void GenerationalGC::ConfigureThresholds(size_t young_threshold, size_t old_threshold,
@@ -256,17 +239,17 @@ void GenerationalGC::IncCollectionsCount() {
 }
 
 void GenerationalGC::Mark(std::shared_ptr<GCObject> root) {
-    std::vector<std::shared_ptr<GCObject>> stack;
+    std::vector<std::shared_ptr<GCObject> > stack;
     stack.push_back(root);
 
     while (!stack.empty()) {
         auto current = stack.back();
         stack.pop_back();
         bool expected = false;
-        if (current->mark.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        if (current->mark.compare_exchange_strong(expected, true)) {
             std::lock_guard<std::mutex> edge_lock(current->edges_mutex);
             for (const auto &next: current->edges) {
-                if (!next->mark.load(std::memory_order_acquire)) {
+                if (!next->mark.load()) {
                     stack.push_back(next);
                 }
             }
@@ -274,13 +257,13 @@ void GenerationalGC::Mark(std::shared_ptr<GCObject> root) {
     }
 }
 
-void GenerationalGC::Sweep(std::unordered_map<void *, std::shared_ptr<GCObject>> &generation) {
+void GenerationalGC::Sweep(std::unordered_map<void *, std::shared_ptr<GCObject> > &generation) {
     auto it = generation.begin();
     while (it != generation.end()) {
-        if (!(it->second)->mark.load(std::memory_order_acquire)) {
+        if (!(it->second)->mark.load()) {
             it = generation.erase(it);
         } else {
-            (it->second)->mark.store(false, std::memory_order_release);
+            (it->second)->mark.store(false);
             ++it;
         }
     }

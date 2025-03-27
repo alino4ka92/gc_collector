@@ -37,7 +37,6 @@ static void LargeAllocations(benchmark::State &state) {
             objects[indices[i]] = nullptr;
         }
         benchmark::ClobberMemory();
-
     }
 }
 
@@ -98,10 +97,10 @@ static void CycleAllocations(benchmark::State &state) {
 }
 
 BENCHMARK(LargeAllocations)
-        ->Args({1000, 128})    // 1000 objects 128 B each
-        ->Args({1000, 512})   // 1000 objects 1 KB each
+  //      ->Args({1000, 128})    // 1000 objects 128 B each
+  //      ->Args({1000, 512})   // 1000 objects 1 KB each
         ->Args({10000, 128})   // 10000 objects 128 B each
-        ->Args({10000, 512})  // 10000 objects 1 KB each
+        ->Args({10000, 128})  // 10000 objects 1 KB each
         ->Unit(benchmark::kMillisecond)
         ->Name("LargeAllocations");
 

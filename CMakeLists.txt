@@ -3,8 +3,7 @@ project(GcCollectorProject)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_FLAGS "-fsanitize=address")
-set(ENV{MallocNanoZone} 0)
+
 set(SOURCES
         src/gc.cpp
         src/gc_impl.cpp

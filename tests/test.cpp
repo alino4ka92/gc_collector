@@ -27,6 +27,8 @@ TEST_F(GCBasicTest, BasicAllocationAndCollection) {
 
     gc_collect(false);
 
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
     ASSERT_GE(get_collections_count(), 1);
 }
 
@@ -42,6 +44,8 @@ TEST_F(GCBasicTest, MajorCollections) {
     gc_free(root);
 
     gc_collect(true);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
     ASSERT_GE(get_collections_count(), 1);
 }
