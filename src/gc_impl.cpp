@@ -5,7 +5,7 @@
 #include <vector>
 
 GCObject::GCObject(bool is_root_value, size_t size)
-    : is_root(is_root_value), memory(std::make_unique<char[]>(size)) {
+    : is_root(is_root_value), memory(std::make_unique<uint64_t[]>(size/8+1)) {
 }
 
 void GCObject::AddEdge(const std::shared_ptr<GCObject> &obj) {
@@ -65,7 +65,6 @@ void GenerationalGC::GCThreadFunction() {
         bool old_gen_full = collections_count_.load() % 5 == 0 ||
                             static_cast<double>(old_gen_size_.load()) >=
                             old_gen_ratio_ * static_cast<double>(old_gen_threshold_);
-
         if (old_gen_full) {
             MajorCollect();
         } else if (young_gen_full) {

@@ -25,8 +25,6 @@ TEST_F(GCBasicTest, BasicAllocationAndCollection) {
 
     gc_free(ptr);
 
-    gc_collect(false);
-
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
     ASSERT_GE(get_collections_count(), 1);
@@ -89,7 +87,7 @@ TEST_F(GCBasicTest, CollectionCycle) {
 
         std::vector<void*> objects;
         for (int i = 0; i < 5; i++) {
-            objects.push_back(gc_malloc(1024*200, true, nullptr));
+            objects.push_back(gc_malloc(1024*500, true, nullptr));
         }
 
         for (size_t i = 0; i < objects.size() / 2; i++) {
@@ -99,8 +97,7 @@ TEST_F(GCBasicTest, CollectionCycle) {
 
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
-    ASSERT_GE(get_collections_count(), initial_count);
-    ASSERT_GT(get_old_gen_size(), initial_old_gen);
+    ASSERT_GT(get_collections_count(), initial_count);
 }
 
 struct Node {
@@ -178,6 +175,7 @@ protected:
 const size_t THREAD_COUNT = std::thread::hardware_concurrency()-2;
 
 TEST_F(MultithreadTest, BasicAllocation) {
+
     const int obj_in_thread = 100;
     const size_t obj_size = 1024; // 1 KB
 

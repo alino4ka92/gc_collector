@@ -8,13 +8,14 @@
 #include <atomic>
 #include <thread>
 #include <condition_variable>
+
 struct GCObject {
     std::atomic<bool> mark{false};
     bool is_root = false;
     std::mutex edges_mutex;
     std::unordered_set<std::shared_ptr<GCObject>> edges;
     std::shared_ptr<GCObject> parent = nullptr;
-    std::unique_ptr<char[]> memory = nullptr;
+    std::unique_ptr<uint64_t[]> memory = nullptr;
     int size = 0;
 
     GCObject(bool is_root_value, size_t size);
@@ -27,12 +28,13 @@ struct GCObject {
 class GenerationalGC {
 public:
     GenerationalGC();
-
-    void *Malloc(size_t size, bool is_root, void *parent);
+    GenerationalGC(const GenerationalGC&)=delete;
+    GenerationalGC& operator=(const GenerationalGC&)=delete;
+    void*Malloc(size_t size, bool is_root, void*parent);
 
     void ChangeParent(void* ptr, void* new_parent);
 
-    void Free(void *ptr);
+    void Free(void*ptr);
 
     void MinorCollect();
 
@@ -59,11 +61,11 @@ public:
 
 
 private:
-    std::unordered_map<void *, std::shared_ptr<GCObject>> young_gen_;
-    std::unordered_map<void *, std::shared_ptr<GCObject>> old_gen_;
-    std::unordered_map<void *, std::shared_ptr<GCObject>> old_roots_;
-    std::unordered_map<void *, std::shared_ptr<GCObject>> young_roots_;
-    std::unordered_map<void *, std::shared_ptr<GCObject>> young_from_old_;
+    std::unordered_map<void*, std::shared_ptr<GCObject>> young_gen_;
+    std::unordered_map<void*, std::shared_ptr<GCObject>> old_gen_;
+    std::unordered_map<void*, std::shared_ptr<GCObject>> old_roots_;
+    std::unordered_map<void*, std::shared_ptr<GCObject>> young_roots_;
+    std::unordered_map<void*, std::shared_ptr<GCObject>> young_from_old_;
 
     std::mutex young_gen_mutex_;
     std::mutex old_gen_mutex_;
@@ -90,8 +92,8 @@ private:
 
     void Mark(std::shared_ptr<GCObject> root);
 
-    void Sweep(std::unordered_map<void *, std::shared_ptr<GCObject>> &generation);
+    void Sweep(std::unordered_map<void*, std::shared_ptr<GCObject>> &generation);
 
-    std::shared_ptr<GCObject> FindObject(void *ptr);
+    std::shared_ptr<GCObject> FindObject(void*ptr);
 
 };
