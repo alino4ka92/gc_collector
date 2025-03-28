@@ -52,12 +52,8 @@ void GenerationalGC::GCThreadFunction() {
     while (!should_stop_.load()) {
         {
             std::unique_lock<std::mutex> lock(gc_mutex_);
-            gc_cv_.wait_for(lock, std::chrono::milliseconds(1000), [this] {
-                return should_stop_.load() || collections_count_.load() % 3 == 0 ||
-                       static_cast<double>(young_gen_size_.load()) >=
-                       young_gen_ratio_ * static_cast<double>(young_gen_threshold_) ||
-                       static_cast<double>(old_gen_size_.load()) >=
-                       old_gen_ratio_ * static_cast<double>(old_gen_threshold_);
+            gc_cv_.wait_for(lock, std::chrono::milliseconds(500), [this] {
+                return should_stop_.load();
             });
         }
         if (should_stop_.load()) {
@@ -66,7 +62,7 @@ void GenerationalGC::GCThreadFunction() {
 
         bool young_gen_full = static_cast<double>(young_gen_size_.load()) >=
                               young_gen_ratio_ * static_cast<double>(young_gen_threshold_);
-        bool old_gen_full = collections_count_.load() % 3 == 0 ||
+        bool old_gen_full = collections_count_.load() % 5 == 0 ||
                             static_cast<double>(old_gen_size_.load()) >=
                             old_gen_ratio_ * static_cast<double>(old_gen_threshold_);
 
@@ -108,7 +104,6 @@ void *GenerationalGC::Malloc(size_t size, bool is_root, void *parent) {
 
     young_gen_size_ += size;
     total_allocated_bytes_ += size;
-
     return ptr;
 }
 
@@ -200,8 +195,10 @@ void GenerationalGC::MajorCollect() {
             Mark(obj);
         }
 
+
         Sweep(old_gen_);
         Sweep(young_gen_);
+
 
         for (const auto &[ptr, obj]: young_gen_) {
             old_gen_.insert({ptr, obj});

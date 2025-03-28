@@ -29,7 +29,7 @@ static void LargeAllocations(benchmark::State &state) {
             if (i % 3 == 0 && !objects.empty()) {
                 parent = objects[i - 1];
             }
-            void *ptr = gc_malloc(object_size, is_root, parent);
+           void *ptr = gc_malloc(object_size, is_root, parent);
             objects.push_back(ptr);
         }
         for (size_t i = 0; i < block_size / 2; ++i) {
@@ -41,13 +41,12 @@ static void LargeAllocations(benchmark::State &state) {
 }
 
 const size_t TEMP_OBJECT_SIZE = 10;
-const size_t PERSISTENT_OBJECT_SIZE = 512;
-const size_t TEMP_OBJECTS_PER_ITERATION = 10;
+const size_t PERSISTENT_OBJECT_SIZE = 1024;
 
 static void CycleAllocations(benchmark::State &state) {
     const int iterations = state.range(0);
     const int persistent_objects = state.range(1);
-
+    const int temp_objects_per_iteration = state.range(2);
     for (auto _: state) {
         std::vector<void *> persistent;
         persistent.reserve(persistent_objects);
@@ -64,19 +63,19 @@ static void CycleAllocations(benchmark::State &state) {
 
         for (int iter = 0; iter < iterations; ++iter) {
             std::vector<void *> temp_objects;
-            temp_objects.reserve(TEMP_OBJECTS_PER_ITERATION);
+            temp_objects.reserve(temp_objects_per_iteration);
 
-            for (int j = 0; j < TEMP_OBJECTS_PER_ITERATION; ++j) {
+            for (int j = 0; j < temp_objects_per_iteration; ++j) {
                 void *parent = nullptr;
                 if (!persistent.empty() && j % 2 == 0) {
                     parent = persistent[j % persistent.size()];
                 }
 
-                void *temp = gc_malloc(TEMP_OBJECT_SIZE, false, parent);
+                void *temp = gc_malloc(temp_objects_per_iteration, false, parent);
                 temp_objects.push_back(temp);
 
                 if (j > 0 && j % 3 == 0) {
-                    void *child = gc_malloc(TEMP_OBJECT_SIZE / 2, false, temp);
+                    void *child = gc_malloc(temp_objects_per_iteration / 2, false, temp);
                     temp_objects.push_back(child);
                 }
             }
@@ -97,18 +96,19 @@ static void CycleAllocations(benchmark::State &state) {
 }
 
 BENCHMARK(LargeAllocations)
-  //      ->Args({1000, 128})    // 1000 objects 128 B each
-  //      ->Args({1000, 512})   // 1000 objects 1 KB each
-        ->Args({10000, 128})   // 10000 objects 128 B each
-        ->Args({10000, 128})  // 10000 objects 1 KB each
+        ->Args({10000, 128})    // 10000 objects 128 B each
+        ->Args({10000, 1024})   // 10000 objects 1 KB each
+        ->Args({100000, 128})   // 100000 objects 128 B each
+        ->Args({100000, 1024})  // 100000 objects 1 KB each
         ->Unit(benchmark::kMillisecond)
         ->Name("LargeAllocations");
 
 BENCHMARK(CycleAllocations)
-        ->Args({100, 10})     // 100 iterations, 10 persistent objects
-        ->Args({100, 100})    // 100 iterations, 100 persistent objects
-        ->Args({1000, 10})    // 1000 iterations, 10 persisent objects
-        ->Args({1000, 100})   // 1000 iterations, 100 persistent objects
+        ->Args({1000, 10, 10})     // 1000 iterations, 10 persistent objects, 10 temporary objects
+        ->Args({1000, 100, 10})    // 1000 iterations, 100 persistent objects, 10 temporary objects
+        ->Args({10000, 10, 100})    // 10000 iterations, 10 persisent objects, 100 temporary objects
+        ->Args({10000, 100, 10})   // 10000 iterations, 100 persistent objects, 10 temporary objects
+        ->Args({10000, 10, 10})    // 10000 iterations, 10 persisent objects, 10 temporary objects
         ->Unit(benchmark::kMillisecond)
         ->Name("CycleAllocations");
 
