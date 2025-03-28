@@ -4,7 +4,7 @@
 #include <iostream>
 #include <random>
 #include <algorithm>
-int cnt=0;
+
 static void LargeAllocations(benchmark::State &state) {
     const size_t block_size = state.range(0);
     const size_t object_size = state.range(1);
@@ -29,7 +29,7 @@ static void LargeAllocations(benchmark::State &state) {
             if (i % 3 == 0 && !objects.empty()) {
                 parent = objects[i - 1];
             }
-           void *ptr = gc_malloc(object_size, is_root, parent);
+            void *ptr = gc_malloc(object_size, is_root, parent);
             objects.push_back(ptr);
         }
         for (size_t i = 0; i < block_size / 2; ++i) {
@@ -60,20 +60,16 @@ static void CycleAllocations(benchmark::State &state) {
             }
         }
 
-
         for (int iter = 0; iter < iterations; ++iter) {
             std::vector<void *> temp_objects;
             temp_objects.reserve(temp_objects_per_iteration);
-
             for (int j = 0; j < temp_objects_per_iteration; ++j) {
                 void *parent = nullptr;
-                if (!persistent.empty() && j % 2 == 0) {
+                if (!persistent.empty()) {
                     parent = persistent[j % persistent.size()];
                 }
-
                 void *temp = gc_malloc(temp_objects_per_iteration, false, parent);
                 temp_objects.push_back(temp);
-
                 if (j > 0 && j % 3 == 0) {
                     void *child = gc_malloc(temp_objects_per_iteration / 2, false, temp);
                     temp_objects.push_back(child);
@@ -91,24 +87,24 @@ static void CycleAllocations(benchmark::State &state) {
         for (auto *obj: persistent) {
             gc_free(obj);
         }
-
     }
 }
 
+
 BENCHMARK(LargeAllocations)
-        ->Args({10000, 128})    // 10000 objects 128 B each
-        ->Args({10000, 1024})   // 10000 objects 1 KB each
-        ->Args({100000, 128})   // 100000 objects 128 B each
-        ->Args({100000, 1024})  // 100000 objects 1 KB each
+        ->Args({10000, 128}) // 10000 objects 128 B each
+        ->Args({10000, 1024}) // 10000 objects 1 KB each
+        ->Args({100000, 128}) // 100000 objects 128 B each
+        ->Args({100000, 1024}) // 100000 objects 1 KB each
         ->Unit(benchmark::kMillisecond)
         ->Name("LargeAllocations");
 
 BENCHMARK(CycleAllocations)
-        ->Args({1000, 10, 10})     // 1000 iterations, 10 persistent objects, 10 temporary objects
-        ->Args({1000, 100, 10})    // 1000 iterations, 100 persistent objects, 10 temporary objects
-        ->Args({10000, 10, 100})    // 10000 iterations, 10 persisent objects, 100 temporary objects
-        ->Args({10000, 100, 10})   // 10000 iterations, 100 persistent objects, 10 temporary objects
-        ->Args({10000, 10, 10})    // 10000 iterations, 10 persisent objects, 10 temporary objects
+        ->Args({1000, 10, 10}) // 1000 iterations, 10 persistent objects, 10 temporary objects
+        ->Args({1000, 100, 10}) // 1000 iterations, 100 persistent objects, 10 temporary objects
+        ->Args({10000, 10, 100}) // 10000 iterations, 10 persisent objects, 100 temporary objects
+        ->Args({10000, 100, 10}) // 10000 iterations, 100 persistent objects, 10 temporary objects
+        ->Args({10000, 10, 10}) // 10000 iterations, 10 persisent objects, 10 temporary objects
         ->Unit(benchmark::kMillisecond)
         ->Name("CycleAllocations");
 
