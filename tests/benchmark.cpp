@@ -33,7 +33,6 @@ static void LargeAllocations(benchmark::State &state) {
             }
             void *ptr = gc_malloc(object_size, is_root, parent);
             objects.push_back(ptr);
-
         }
         for (size_t i = 0; i < block_size / 2; ++i) {
             gc_free(objects[indices[i]]);
@@ -47,7 +46,6 @@ const size_t TEMP_OBJECT_SIZE = 10;
 const size_t PERSISTENT_OBJECT_SIZE = 1024;
 
 static void CycleAllocations(benchmark::State &state) {
-
     const int iterations = state.range(0);
     const int persistent_objects = state.range(1);
     const int temp_objects_per_iteration = state.range(2);
@@ -83,14 +81,6 @@ static void CycleAllocations(benchmark::State &state) {
                 }
             }
 
-            int sum = 0;
-            for (int i = 0; i < temp_objects.size(); i++) {
-                *static_cast<int *>(temp_objects[i]) = i;
-            }
-            for (int i = 0; i < temp_objects.size(); i++) {
-                sum += *static_cast<int *>(temp_objects[i]);
-            } // имитируем реальную работу программы
-
             benchmark::DoNotOptimize(temp_objects.data());
 
             for (auto *obj: temp_objects) {
@@ -116,10 +106,9 @@ BENCHMARK(LargeAllocations)
 
 BENCHMARK(CycleAllocations)
         ->Args({1000, 10, 10}) // 1000 iterations, 10 persistent objects, 10 temporary objects
-        ->Args({1000, 100, 10}) // 1000 iterations, 100 persistent objects, 10 temporary objects
-        ->Args({10000, 10, 100}) // 10000 iterations, 10 persisent objects, 100 temporary objects
-        ->Args({10000, 100, 10}) // 10000 iterations, 100 persistent objects, 10 temporary objects
-        ->Args({10000, 10, 10}) // 10000 iterations, 10 persisent objects, 10 temporary objects
+        ->Args({1000, 10, 100}) // 1000 iterations, 10 persisent objects, 100 temporary objects
+        ->Args({10000, 100, 50}) // 10000 iterations, 100 persistent objects, 50 temporary objects
+        ->Args({10000, 100, 100}) // 10000 iterations, 10 persisent objects, 100 temporary objects
         ->Unit(benchmark::kMillisecond)
         ->Name("CycleAllocations")->MeasureProcessCPUTime();
 
