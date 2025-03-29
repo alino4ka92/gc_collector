@@ -14,7 +14,7 @@ struct GCObject {
     bool is_root = false;
     std::mutex edges_mutex;
     std::unordered_set<std::shared_ptr<GCObject>> edges;
-    std::shared_ptr<GCObject> parent = nullptr;
+    std::shared_ptr<GCObject> parent    = nullptr;
     std::unique_ptr<uint64_t[]> memory = nullptr;
     int size = 0;
 

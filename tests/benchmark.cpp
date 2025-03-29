@@ -1,10 +1,12 @@
 #include "gc.h"
 #include <benchmark/benchmark.h>
 #include <vector>
+#include <thread>
 #include <iostream>
 #include <random>
 #include <algorithm>
-int cnt=0;
+#include <chrono>
+
 static void LargeAllocations(benchmark::State &state) {
     const size_t block_size = state.range(0);
     const size_t object_size = state.range(1);
@@ -29,8 +31,9 @@ static void LargeAllocations(benchmark::State &state) {
             if (i % 3 == 0 && !objects.empty()) {
                 parent = objects[i - 1];
             }
-           void *ptr = gc_malloc(object_size, is_root, parent);
+            void *ptr = gc_malloc(object_size, is_root, parent);
             objects.push_back(ptr);
+
         }
         for (size_t i = 0; i < block_size / 2; ++i) {
             gc_free(objects[indices[i]]);
@@ -78,6 +81,9 @@ static void CycleAllocations(benchmark::State &state) {
                     void *child = gc_malloc(temp_objects_per_iteration / 2, false, temp);
                     temp_objects.push_back(child);
                 }
+                state.PauseTiming();
+                std::this_thread::sleep_for(std::chrono::milliseconds(10)); // имитируем реальную работу программы
+                state.ResumeTiming();
             }
 
             benchmark::DoNotOptimize(temp_objects.data());
