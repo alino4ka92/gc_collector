@@ -109,7 +109,7 @@ BENCHMARK(CycleAllocations)
         ->Args({1000, 10, 100}) // 1000 iterations, 10 persisent objects, 100 temporary objects
         ->Args({10000, 10000, 50}) // 10000 iterations, 10000 persistent objects, 50 temporary objects
         ->Args({10000, 10000, 100}) // 10000 iterations, 10000 persisent objects, 100 temporary objects
-        ->Args({10000, 100000, 50}) // 10000 iterations, 100000 persisent objects, 100 temporary objects
+        ->Args({10000, 100000, 50}) // 10000 iterations, 100000 persisent objects, 50 temporary objects
         ->Unit(benchmark::kMillisecond)
         ->Name("CycleAllocations")->MeasureProcessCPUTime()->Iterations(10);
 
