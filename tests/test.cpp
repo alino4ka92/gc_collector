@@ -25,7 +25,7 @@ TEST_F(GCBasicTest, BasicAllocationAndCollection) {
 
     gc_free(ptr);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
     ASSERT_GE(get_collections_count(), 1);
 }

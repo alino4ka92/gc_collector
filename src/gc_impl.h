@@ -13,8 +13,8 @@ struct GCObject {
     std::atomic<bool> mark{false};
     bool is_root = false;
     std::mutex edges_mutex;
-    std::unordered_set<std::shared_ptr<GCObject>> edges;
-    std::shared_ptr<GCObject> parent    = nullptr;
+    std::unordered_set<void*> edges;
+    void* parent;
     std::unique_ptr<uint64_t[]> memory = nullptr;
     int size = 0;
 

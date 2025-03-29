@@ -10,12 +10,12 @@ GCObject::GCObject(bool is_root_value, size_t size)
 
 void GCObject::AddEdge(const std::shared_ptr<GCObject> &obj) {
     std::unique_lock<std::mutex> lock(edges_mutex);
-    edges.insert(obj);
+    edges.insert(obj->memory.get());
 }
 
 void GCObject::RemEdge(const std::shared_ptr<GCObject> &obj) {
     std::unique_lock lock(edges_mutex);
-    edges.erase(obj);
+    edges.erase(obj->memory.get());
 }
 
 GenerationalGC::GenerationalGC() {
@@ -52,7 +52,7 @@ void GenerationalGC::GCThreadFunction() {
     while (!should_stop_.load()) {
         {
             std::unique_lock<std::mutex> lock(gc_mutex_);
-            gc_cv_.wait_for(lock, std::chrono::milliseconds(500), [this] {
+            gc_cv_.wait_for(lock, std::chrono::milliseconds(1000), [this] {
                 return should_stop_.load();
             });
         }
@@ -95,7 +95,7 @@ void *GenerationalGC::Malloc(size_t size, bool is_root, void *parent) {
             }
             if (parent_obj) {
                 parent_obj->AddEdge(obj);
-                obj->parent = parent_obj;
+                obj->parent = parent;
             }
         }
         young_gen_.insert({ptr, obj});
@@ -113,7 +113,7 @@ void GenerationalGC::ChangeParent(void *ptr, void *new_parent) {
 
         std::shared_ptr<GCObject> obj = FindObject(ptr);
 
-        std::shared_ptr<GCObject> old_parent_obj = obj->parent;
+        std::shared_ptr<GCObject> old_parent_obj = FindObject(obj->parent);
         if (old_parent_obj) {
             old_parent_obj->RemEdge(obj);
         }
@@ -121,7 +121,7 @@ void GenerationalGC::ChangeParent(void *ptr, void *new_parent) {
         std::shared_ptr<GCObject> new_parent_obj = FindObject(new_parent);
         new_parent_obj->AddEdge(obj);
 
-        obj->parent = new_parent_obj;
+        obj->parent = new_parent;
     }
 }
 
@@ -245,8 +245,9 @@ void GenerationalGC::Mark(std::shared_ptr<GCObject> root) {
         if (current->mark.compare_exchange_strong(expected, true)) {
             std::lock_guard<std::mutex> edge_lock(current->edges_mutex);
             for (const auto &next: current->edges) {
-                if (!next->mark.load()) {
-                    stack.push_back(next);
+                auto obj = FindObject(next);
+                if (!obj->mark.load()) {
+                    stack.push_back(obj);
                 }
             }
         }
@@ -271,7 +272,7 @@ std::shared_ptr<GCObject> GenerationalGC::FindObject(void *ptr) {
     } else if (old_gen_.contains(ptr)) {
         return old_gen_[ptr];
     } else {
-        throw std::runtime_error("Object not found");
+        return nullptr;
     }
 }
 
