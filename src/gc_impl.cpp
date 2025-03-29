@@ -4,8 +4,10 @@
 #include <mutex>
 #include <vector>
 
+constexpr int TIME_TO_CHECK = 1000;
+
 GCObject::GCObject(bool is_root_value, size_t size)
-    : is_root(is_root_value), memory(std::make_unique<uint64_t[]>(size/8+1)) {
+        : is_root(is_root_value), memory(std::make_unique<uint64_t[]>(size / 8 + 1)) {
 }
 
 void GCObject::AddEdge(const std::shared_ptr<GCObject> &obj) {
@@ -51,8 +53,8 @@ void GenerationalGC::ForceGarbageCollection(bool major) {
 void GenerationalGC::GCThreadFunction() {
     while (!should_stop_.load()) {
         {
-            std::unique_lock<std::mutex> lock(gc_mutex_);
-            gc_cv_.wait_for(lock, std::chrono::milliseconds(1000), [this] {
+            std::unique_lock<std::mutex> lock(background_mutex_);
+            gc_cv_.wait_for(lock, std::chrono::milliseconds(TIME_TO_CHECK), [this] {
                 return should_stop_.load();
             });
         }
@@ -76,15 +78,14 @@ void GenerationalGC::GCThreadFunction() {
 void *GenerationalGC::Malloc(size_t size, bool is_root, void *parent) {
     auto obj = std::make_shared<GCObject>(is_root, size);
     void *ptr = obj->memory.get();
-    obj->size = size; {
-        std::lock_guard<std::mutex> young_lock(young_gen_mutex_);
-        std::lock_guard<std::mutex> old_lock(old_gen_mutex_);
+    obj->size = size;
+    {
+        std::lock_guard<std::mutex> lock(gc_mutex_);
         if (is_root) {
             young_roots_.insert({ptr, obj});
         }
         if (parent) {
             std::shared_ptr<GCObject> parent_obj = nullptr;
-
             if (young_gen_.contains(parent)) {
                 parent_obj = young_gen_[parent];
             } else {
@@ -102,14 +103,12 @@ void *GenerationalGC::Malloc(size_t size, bool is_root, void *parent) {
     }
 
     young_gen_size_ += size;
-    total_allocated_bytes_ += size;
     return ptr;
 }
 
 void GenerationalGC::ChangeParent(void *ptr, void *new_parent) {
     {
-        std::lock_guard<std::mutex> young_lock(young_gen_mutex_);
-        std::lock_guard<std::mutex> old_lock(old_gen_mutex_);
+        std::lock_guard<std::mutex> lock(gc_mutex_);
 
         std::shared_ptr<GCObject> obj = FindObject(ptr);
 
@@ -127,8 +126,7 @@ void GenerationalGC::ChangeParent(void *ptr, void *new_parent) {
 
 void GenerationalGC::Free(void *ptr) {
     try {
-        std::lock_guard<std::mutex> young_lock(young_gen_mutex_);
-        std::lock_guard<std::mutex> old_lock(old_gen_mutex_);
+        std::lock_guard<std::mutex> lock(gc_mutex_);
 
         std::shared_ptr<GCObject> obj = FindObject(ptr);
         if (obj) {
@@ -156,10 +154,9 @@ void GenerationalGC::MinorCollect() {
     bool expected = false;
     if (!gc_in_progress_.compare_exchange_strong(expected, true)) {
         return;
-    } {
-        std::lock_guard<std::mutex> young_lock(young_gen_mutex_);
-        std::lock_guard<std::mutex> old_lock(old_gen_mutex_);
-
+    }
+    {
+        std::lock_guard<std::mutex> lock(gc_mutex_);
         for (const auto &[ptr, obj]: young_roots_) {
             Mark(obj);
         }
@@ -182,18 +179,15 @@ void GenerationalGC::MajorCollect() {
     bool expected = false;
     if (!gc_in_progress_.compare_exchange_strong(expected, true)) {
         return;
-    } {
-        std::lock_guard<std::mutex> young_lock(young_gen_mutex_);
-        std::lock_guard<std::mutex> old_lock(old_gen_mutex_);
-
+    }
+    {
+        std::lock_guard<std::mutex> lock(gc_mutex_);
         for (const auto &[ptr, obj]: old_roots_) {
             Mark(obj);
         }
-
         for (const auto &[ptr, obj]: young_roots_) {
             Mark(obj);
         }
-
 
         Sweep(old_gen_);
         Sweep(young_gen_);
@@ -241,12 +235,12 @@ void GenerationalGC::Mark(std::shared_ptr<GCObject> root) {
     while (!stack.empty()) {
         auto current = stack.back();
         stack.pop_back();
-        bool expected = false;
-        if (current->mark.compare_exchange_strong(expected, true)) {
+        if (!current->mark) {
+            current->mark = true;
             std::lock_guard<std::mutex> edge_lock(current->edges_mutex);
             for (const auto &next: current->edges) {
                 auto obj = FindObject(next);
-                if (!obj->mark.load()) {
+                if (!obj->mark) {
                     stack.push_back(obj);
                 }
             }
@@ -257,10 +251,10 @@ void GenerationalGC::Mark(std::shared_ptr<GCObject> root) {
 void GenerationalGC::Sweep(std::unordered_map<void *, std::shared_ptr<GCObject> > &generation) {
     auto it = generation.begin();
     while (it != generation.end()) {
-        if (!(it->second)->mark.load()) {
+        if (!(it->second)->mark) {
             it = generation.erase(it);
         } else {
-            (it->second)->mark.store(false);
+            (it->second)->mark = false;
             ++it;
         }
     }

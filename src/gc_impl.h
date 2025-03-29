@@ -10,11 +10,11 @@
 #include <condition_variable>
 
 struct GCObject {
-    std::atomic<bool> mark{false};
+    bool mark = false;
     bool is_root = false;
     std::mutex edges_mutex;
-    std::unordered_set<void*> edges;
-    void* parent;
+    std::unordered_set<void *> edges;
+    void *parent;
     std::unique_ptr<uint64_t[]> memory = nullptr;
     int size = 0;
 
@@ -28,13 +28,16 @@ struct GCObject {
 class GenerationalGC {
 public:
     GenerationalGC();
-    GenerationalGC(const GenerationalGC&)=delete;
-    GenerationalGC& operator=(const GenerationalGC&)=delete;
-    void*Malloc(size_t size, bool is_root, void*parent);
 
-    void ChangeParent(void* ptr, void* new_parent);
+    GenerationalGC(const GenerationalGC &) = delete;
 
-    void Free(void*ptr);
+    GenerationalGC &operator=(const GenerationalGC &) = delete;
+
+    void *Malloc(size_t size, bool is_root, void *parent);
+
+    void ChangeParent(void *ptr, void *new_parent);
+
+    void Free(void *ptr);
 
     void MinorCollect();
 
@@ -61,19 +64,17 @@ public:
 
 
 private:
-    std::unordered_map<void*, std::shared_ptr<GCObject>> young_gen_;
-    std::unordered_map<void*, std::shared_ptr<GCObject>> old_gen_;
-    std::unordered_map<void*, std::shared_ptr<GCObject>> old_roots_;
-    std::unordered_map<void*, std::shared_ptr<GCObject>> young_roots_;
-    std::unordered_map<void*, std::shared_ptr<GCObject>> young_from_old_;
+    std::unordered_map<void *, std::shared_ptr<GCObject>> young_gen_;
+    std::unordered_map<void *, std::shared_ptr<GCObject>> old_gen_;
+    std::unordered_map<void *, std::shared_ptr<GCObject>> old_roots_;
+    std::unordered_map<void *, std::shared_ptr<GCObject>> young_roots_;
+    std::unordered_map<void *, std::shared_ptr<GCObject>> young_from_old_;
 
-    std::mutex young_gen_mutex_;
-    std::mutex old_gen_mutex_;
     std::mutex gc_mutex_;
+    std::mutex background_mutex_;
 
     std::atomic<size_t> young_gen_size_{0};
     std::atomic<size_t> old_gen_size_{0};
-    std::atomic<size_t> total_allocated_bytes_{0};
     std::atomic<bool> gc_in_progress_{false};
     std::atomic<size_t> collections_count_{0};
 
@@ -92,8 +93,8 @@ private:
 
     void Mark(std::shared_ptr<GCObject> root);
 
-    void Sweep(std::unordered_map<void*, std::shared_ptr<GCObject>> &generation);
+    void Sweep(std::unordered_map<void *, std::shared_ptr<GCObject>> &generation);
 
-    std::shared_ptr<GCObject> FindObject(void*ptr);
+    std::shared_ptr<GCObject> FindObject(void *ptr);
 
 };

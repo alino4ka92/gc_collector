@@ -47,10 +47,14 @@ const size_t TEMP_OBJECT_SIZE = 10;
 const size_t PERSISTENT_OBJECT_SIZE = 1024;
 
 static void CycleAllocations(benchmark::State &state) {
+
     const int iterations = state.range(0);
     const int persistent_objects = state.range(1);
     const int temp_objects_per_iteration = state.range(2);
     for (auto _: state) {
+        state.PauseTiming();
+        gc_collect(true); // ждем очистку мусора с предыдущей стадии
+        state.ResumeTiming();
         std::vector<void *> persistent;
         persistent.reserve(persistent_objects);
 
@@ -71,16 +75,21 @@ static void CycleAllocations(benchmark::State &state) {
                 if (!persistent.empty()) {
                     parent = persistent[j % persistent.size()];
                 }
-                void *temp = gc_malloc(temp_objects_per_iteration, false, parent);
+                void *temp = gc_malloc(TEMP_OBJECT_SIZE, false, parent);
                 temp_objects.push_back(temp);
                 if (j > 0 && j % 3 == 0) {
-                    void *child = gc_malloc(temp_objects_per_iteration / 2, false, temp);
+                    void *child = gc_malloc(TEMP_OBJECT_SIZE / 2, false, temp);
                     temp_objects.push_back(child);
                 }
-                state.PauseTiming();
-                std::this_thread::sleep_for(std::chrono::milliseconds(10)); // имитируем реальную работу программы
-                state.ResumeTiming();
             }
+
+            int sum = 0;
+            for (int i = 0; i < temp_objects.size(); i++) {
+                *static_cast<int *>(temp_objects[i]) = i;
+            }
+            for (int i = 0; i < temp_objects.size(); i++) {
+                sum += *static_cast<int *>(temp_objects[i]);
+            } // имитируем реальную работу программы
 
             benchmark::DoNotOptimize(temp_objects.data());
 
@@ -103,7 +112,7 @@ BENCHMARK(LargeAllocations)
         ->Args({100000, 128}) // 100000 objects 128 B each
         ->Args({100000, 1024}) // 100000 objects 1 KB each
         ->Unit(benchmark::kMillisecond)
-        ->Name("LargeAllocations");
+        ->Name("LargeAllocations")->MeasureProcessCPUTime();
 
 BENCHMARK(CycleAllocations)
         ->Args({1000, 10, 10}) // 1000 iterations, 10 persistent objects, 10 temporary objects
@@ -112,7 +121,7 @@ BENCHMARK(CycleAllocations)
         ->Args({10000, 100, 10}) // 10000 iterations, 100 persistent objects, 10 temporary objects
         ->Args({10000, 10, 10}) // 10000 iterations, 10 persisent objects, 10 temporary objects
         ->Unit(benchmark::kMillisecond)
-        ->Name("CycleAllocations");
+        ->Name("CycleAllocations")->MeasureProcessCPUTime();
 
 
 BENCHMARK_MAIN();
